@@ -1,0 +1,75 @@
+diff --git a/node_modules/@libp2p/utils/dist/src/queue/recipient.js b/node_modules/@libp2p/utils/dist/src/queue/recipient.js
+index 6d42ad4..edfa532 100644
+--- a/node_modules/@libp2p/utils/dist/src/queue/recipient.js
++++ b/node_modules/@libp2p/utils/dist/src/queue/recipient.js
+@@ -1,21 +1,66 @@
+ import { AbortError } from '@libp2p/interface';
+-import pDefer from 'p-defer';
++
++/** Same as p-defer — inlined so Metro cannot drop the default import. */
++function createDefer() {
++    const deferred = {};
++    deferred.promise = new Promise((resolve, reject) => {
++        deferred.resolve = resolve;
++        deferred.reject = reject;
++    });
++    return deferred;
++}
++
++/** AbortSignal in some RN/Hermes builds has no addEventListener — use onabort fallback. */
++function subscribeAbort(signal, handler) {
++    if (signal == null) {
++        return undefined;
++    }
++    if (typeof signal.addEventListener === 'function') {
++        signal.addEventListener('abort', handler);
++        return () => {
++            signal.removeEventListener('abort', handler);
++        };
++    }
++    if (signal.aborted === true) {
++        queueMicrotask(handler);
++        return () => { };
++    }
++    try {
++        const prev = signal.onabort;
++        signal.onabort = function combinedOnAbort(ev) {
++            if (typeof prev === 'function') {
++                prev.call(signal, ev);
++            }
++            handler();
++        };
++        return () => {
++            signal.onabort = prev;
++        };
++    }
++    catch {
++        queueMicrotask(handler);
++        return () => { };
++    }
++}
+ export class JobRecipient {
+     deferred;
+     signal;
+     onProgress;
++    /** @type {(() => void) | undefined} */
++    _unsubAbort;
+     constructor(options) {
+         this.signal = options?.signal;
+         this.onProgress = options?.onProgress;
+-        this.deferred = pDefer();
++        this.deferred = createDefer();
+         this.onAbort = this.onAbort.bind(this);
+-        this.signal?.addEventListener('abort', this.onAbort);
++        this._unsubAbort = subscribeAbort(this.signal, this.onAbort);
+     }
+     onAbort() {
+         this.deferred.reject(this.signal?.reason ?? new AbortError());
+     }
+     cleanup() {
+-        this.signal?.removeEventListener('abort', this.onAbort);
++        this._unsubAbort?.();
++        this._unsubAbort = undefined;
+     }
+ }
+ //# sourceMappingURL=recipient.js.map

@@ -1,0 +1,108 @@
+diff --git a/node_modules/it-queue/dist/src/job.js b/node_modules/it-queue/dist/src/job.js
+index 131f4cc..6e47164 100644
+--- a/node_modules/it-queue/dist/src/job.js
++++ b/node_modules/it-queue/dist/src/job.js
+@@ -45,14 +45,20 @@ export class Job {
+     async join(options = {}) {
+         const recipient = new JobRecipient(options.signal);
+         this.recipients.push(recipient);
+-        options.signal?.addEventListener('abort', this.onAbort);
++        options.signal?.addEventListener?.('abort', this.onAbort);
+         return recipient.deferred.promise;
+     }
+     async run() {
+         this.status = 'running';
+         this.timeline.started = Date.now();
+         try {
+-            this.controller.signal.throwIfAborted();
++            const sig = this.controller.signal;
++            if (typeof sig.throwIfAborted === 'function') {
++                sig.throwIfAborted();
++            }
++            else if (sig.aborted === true) {
++                throw sig.reason ?? new AbortError();
++            }
+             const result = await raceSignal(this.fn({
+                 ...(this.options ?? {}),
+                 signal: this.controller.signal
+@@ -76,7 +82,7 @@ export class Job {
+     cleanup() {
+         this.recipients.forEach(recipient => {
+             recipient.cleanup();
+-            recipient.signal?.removeEventListener('abort', this.onAbort);
++            recipient.signal?.removeEventListener?.('abort', this.onAbort);
+         });
+     }
+ }
+diff --git a/node_modules/it-queue/dist/src/recipient.js b/node_modules/it-queue/dist/src/recipient.js
+index 3991ed9..bc4f7b6 100644
+--- a/node_modules/it-queue/dist/src/recipient.js
++++ b/node_modules/it-queue/dist/src/recipient.js
+@@ -1,18 +1,64 @@
+ import { AbortError } from 'abort-error';
++
++/** Hermes has no Promise.withResolvers; inline defer for RN. */
++function createDefer() {
++    const deferred = {};
++    deferred.promise = new Promise((resolve, reject) => {
++        deferred.resolve = resolve;
++        deferred.reject = reject;
++    });
++    return deferred;
++}
++
++/** AbortSignal in some RN/Hermes builds has no addEventListener — use onabort fallback. */
++function subscribeAbort(signal, handler) {
++    if (signal == null) {
++        return undefined;
++    }
++    if (typeof signal.addEventListener === 'function') {
++        signal.addEventListener('abort', handler);
++        return () => {
++            signal.removeEventListener('abort', handler);
++        };
++    }
++    if (signal.aborted === true) {
++        queueMicrotask(handler);
++        return () => { };
++    }
++    try {
++        const prev = signal.onabort;
++        signal.onabort = function combinedOnAbort(ev) {
++            if (typeof prev === 'function') {
++                prev.call(signal, ev);
++            }
++            handler();
++        };
++        return () => {
++            signal.onabort = prev;
++        };
++    }
++    catch {
++        queueMicrotask(handler);
++        return () => { };
++    }
++}
+ export class JobRecipient {
+     deferred;
+     signal;
++    /** @type {(() => void) | undefined} */
++    _unsubAbort;
+     constructor(signal) {
+         this.signal = signal;
+-        this.deferred = Promise.withResolvers();
++        this.deferred = createDefer();
+         this.onAbort = this.onAbort.bind(this);
+-        this.signal?.addEventListener('abort', this.onAbort);
++        this._unsubAbort = subscribeAbort(this.signal, this.onAbort);
+     }
+     onAbort() {
+         this.deferred.reject(this.signal?.reason ?? new AbortError());
+     }
+     cleanup() {
+-        this.signal?.removeEventListener('abort', this.onAbort);
++        this._unsubAbort?.();
++        this._unsubAbort = undefined;
+     }
+ }
+ //# sourceMappingURL=recipient.js.map

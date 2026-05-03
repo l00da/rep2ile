@@ -1,0 +1,140 @@
+diff --git a/node_modules/race-signal/dist/src/index.js b/node_modules/race-signal/dist/src/index.js
+index 217cbbf..b94c846 100644
+--- a/node_modules/race-signal/dist/src/index.js
++++ b/node_modules/race-signal/dist/src/index.js
+@@ -1,57 +1,6 @@
+ /**
+- * @packageDocumentation
+- *
+- * Pass a promise and an abort signal and await the result.
+- *
+- * @example Basic usage
+- *
+- * ```ts
+- * import { raceSignal } from 'race-signal'
+- *
+- * const controller = new AbortController()
+- *
+- * const promise = new Promise((resolve, reject) => {
+- *   setTimeout(() => {
+- *     resolve('a value')
+- *   }, 1000)
+- * })
+- *
+- * setTimeout(() => {
+- *   controller.abort()
+- * }, 500)
+- *
+- * // throws an AbortError
+- * const resolve = await raceSignal(promise, controller.signal)
+- * ```
+- *
+- * @example Overriding errors
+- *
+- * By default the thrown error is the `.reason` property of the signal but it's
+- * possible to override this behaviour with the `translateError` option:
+- *
+- * ```ts
+- * import { raceSignal } from 'race-signal'
+- *
+- * const controller = new AbortController()
+- *
+- * const promise = new Promise((resolve, reject) => {
+- *   setTimeout(() => {
+- *     resolve('a value')
+- *   }, 1000)
+- * })
+- *
+- * setTimeout(() => {
+- *   controller.abort()
+- * }, 500)
+- *
+- * // throws `Error('Oh no!')`
+- * const resolve = await raceSignal(promise, controller.signal, {
+- *   translateError: (signal) => {
+- *     // use `signal`, or don't
+- *     return new Error('Oh no!')
+- *   }
+- * })
+- * ```
++ * Race a promise against an abort signal.
++ * Patched for React Native / Hermes: AbortSignal often has no addEventListener / throwIfAborted.
+  */
+ function defaultTranslate(signal) {
+     return signal.reason;
+@@ -65,26 +14,62 @@ export async function raceSignal(promise, signal, opts) {
+     }
+     const translateError = opts?.translateError ?? defaultTranslate;
+     if (signal.aborted) {
+-        // the passed promise may yet resolve or reject but the use has signalled
++        // the passed promise may yet resolve or reject but the user has signalled
+         // they are no longer interested so smother the error
+         promise.catch(() => { });
+         return Promise.reject(translateError(signal));
+     }
+-    let listener;
++    if (typeof signal.addEventListener === 'function') {
++        let listener;
++        try {
++            return await Promise.race([
++                promise,
++                new Promise((resolve, reject) => {
++                    listener = () => {
++                        reject(translateError(signal));
++                    };
++                    signal.addEventListener('abort', listener);
++                }),
++            ]);
++        }
++        finally {
++            if (listener != null && typeof signal.removeEventListener === 'function') {
++                signal.removeEventListener('abort', listener);
++            }
++        }
++    }
++    /** Hermes: AbortSignal has onabort but no EventTarget methods */
++    const prevOnAbort = signal.onabort;
++    const abortPromise = new Promise((_, reject) => {
++        const forward = () => {
++            promise.catch(() => { });
++            reject(translateError(signal));
++        };
++        if (signal.aborted === true) {
++            forward();
++            return;
++        }
++        try {
++            signal.onabort = function combinedOnAbort(ev) {
++                if (typeof prevOnAbort === 'function') {
++                    prevOnAbort.call(signal, ev);
++                }
++                forward();
++            };
++        }
++        catch {
++            forward();
++        }
++    });
+     try {
+-        return await Promise.race([
+-            promise,
+-            new Promise((resolve, reject) => {
+-                listener = () => {
+-                    reject(translateError(signal));
+-                };
+-                signal.addEventListener('abort', listener);
+-            })
+-        ]);
++        return await Promise.race([promise, abortPromise]);
+     }
+     finally {
+-        if (listener != null) {
+-            signal.removeEventListener('abort', listener);
++        try {
++            signal.onabort = prevOnAbort;
++        }
++        catch {
++            /* ignore */
+         }
+     }
+ }

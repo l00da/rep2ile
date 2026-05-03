@@ -1,0 +1,80 @@
+diff --git a/node_modules/libp2p/dist/src/address-manager/dns-mappings.js b/node_modules/libp2p/dist/src/address-manager/dns-mappings.js
+index 80181f6..881cca1 100644
+--- a/node_modules/libp2p/dist/src/address-manager/dns-mappings.js
++++ b/node_modules/libp2p/dist/src/address-manager/dns-mappings.js
+@@ -1,4 +1,5 @@
+-import { getNetConfig, isNetworkAddress, isPrivateIp, trackedMap } from '@libp2p/utils';
++import { getNetConfig, isNetworkAddress, isPrivateIp } from '@libp2p/utils';
++import { trackedMap } from '../../../../@libp2p/utils/dist/src/tracked-map.js';
+ import { CODE_SNI, CODE_TLS, multiaddr } from '@multiformats/multiaddr';
+ const MAX_DATE = 8_640_000_000_000_000;
+ export const defaultValues = {
+diff --git a/node_modules/libp2p/dist/src/address-manager/ip-mappings.js b/node_modules/libp2p/dist/src/address-manager/ip-mappings.js
+index 3f5c794..6a36d09 100644
+--- a/node_modules/libp2p/dist/src/address-manager/ip-mappings.js
++++ b/node_modules/libp2p/dist/src/address-manager/ip-mappings.js
+@@ -1,5 +1,6 @@
+ import { isIPv4 } from '@chainsafe/is-ip';
+-import { getNetConfig, isNetworkAddress, trackedMap } from '@libp2p/utils';
++import { getNetConfig, isNetworkAddress } from '@libp2p/utils';
++import { trackedMap } from '../../../../@libp2p/utils/dist/src/tracked-map.js';
+ import { CODE_IP4, CODE_IP6, multiaddr } from '@multiformats/multiaddr';
+ export const defaultValues = {
+     maxObservedAddresses: 10
+diff --git a/node_modules/libp2p/dist/src/address-manager/observed-addresses.js b/node_modules/libp2p/dist/src/address-manager/observed-addresses.js
+index 2653db2..fcaec0e 100644
+--- a/node_modules/libp2p/dist/src/address-manager/observed-addresses.js
++++ b/node_modules/libp2p/dist/src/address-manager/observed-addresses.js
+@@ -1,4 +1,5 @@
+-import { isLinkLocal, isPrivate, trackedMap } from '@libp2p/utils';
++import { isLinkLocal, isPrivate } from '@libp2p/utils';
++import { trackedMap } from '../../../../@libp2p/utils/dist/src/tracked-map.js';
+ import { multiaddr } from '@multiformats/multiaddr';
+ export const defaultValues = {
+     maxObservedAddresses: 10
+diff --git a/node_modules/libp2p/dist/src/address-manager/transport-addresses.js b/node_modules/libp2p/dist/src/address-manager/transport-addresses.js
+index 26a3268..54c48cb 100644
+--- a/node_modules/libp2p/dist/src/address-manager/transport-addresses.js
++++ b/node_modules/libp2p/dist/src/address-manager/transport-addresses.js
+@@ -1,4 +1,5 @@
+-import { getNetConfig, isNetworkAddress, isPrivate, trackedMap } from '@libp2p/utils';
++import { getNetConfig, isNetworkAddress, isPrivate } from '@libp2p/utils';
++import { trackedMap } from '../../../../@libp2p/utils/dist/src/tracked-map.js';
+ export const defaultValues = {
+     maxObservedAddresses: 10
+ };
+diff --git a/node_modules/libp2p/dist/src/registrar.js b/node_modules/libp2p/dist/src/registrar.js
+index 0132f23..7ddef3e 100644
+--- a/node_modules/libp2p/dist/src/registrar.js
++++ b/node_modules/libp2p/dist/src/registrar.js
+@@ -1,5 +1,5 @@
+ import { InvalidParametersError } from '@libp2p/interface';
+-import { trackedMap } from '@libp2p/utils';
++import { trackedMap } from '../../../@libp2p/utils/dist/src/tracked-map.js';
+ import { DuplicateProtocolHandlerError, UnhandledProtocolError } from "./errors.js";
+ export const DEFAULT_MAX_INBOUND_STREAMS = 32;
+ export const DEFAULT_MAX_OUTBOUND_STREAMS = 64;
+diff --git a/node_modules/libp2p/dist/src/transport-manager.js b/node_modules/libp2p/dist/src/transport-manager.js
+index d4b4474..b68d0bb 100644
+--- a/node_modules/libp2p/dist/src/transport-manager.js
++++ b/node_modules/libp2p/dist/src/transport-manager.js
+@@ -1,5 +1,5 @@
+ import { FaultTolerance, InvalidParametersError, NotStartedError } from '@libp2p/interface';
+-import { trackedMap } from '@libp2p/utils';
++import { trackedMap } from '../../../@libp2p/utils/dist/src/tracked-map.js';
+ import { IP4, IP6 } from '@multiformats/multiaddr-matcher';
+ import { CustomProgressEvent } from 'progress-events';
+ import { TransportUnavailableError, UnsupportedListenAddressError, UnsupportedListenAddressesError } from "./errors.js";
+diff --git a/node_modules/libp2p/dist/src/upgrader.js b/node_modules/libp2p/dist/src/upgrader.js
+index eb6c892..d301f0c 100644
+--- a/node_modules/libp2p/dist/src/upgrader.js
++++ b/node_modules/libp2p/dist/src/upgrader.js
+@@ -1,7 +1,7 @@
+ import { InvalidMultiaddrError, InvalidPeerIdError } from '@libp2p/interface';
+ import * as mss from '@libp2p/multistream-select';
+ import { peerIdFromString } from '@libp2p/peer-id';
+-import { trackedMap } from '@libp2p/utils';
++import { trackedMap } from '../../../@libp2p/utils/dist/src/tracked-map.js';
+ import { CODE_P2P } from '@multiformats/multiaddr';
+ import { anySignal } from 'any-signal';
+ import { setMaxListeners } from 'main-event';
