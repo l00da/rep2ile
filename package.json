@@ -31,7 +31,8 @@
     "react-native": "0.85.2",
     "react-native-get-random-values": "^2.0.0",
     "react-native-safe-area-context": "^5.5.2",
-    "react-native-webrtc": "^124.0.7"
+    "react-native-webrtc": "^124.0.7",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
