@@ -3,6 +3,7 @@ import type {
   Skeleton3DSequence,
 } from '../../packages/protocol/schemas';
 
+/** Implemented on the **coach peer (local laptop)** — not on the athlete phone. */
 export interface PerfectRep3DLifter {
   lift(sample: FormSample): Promise<{
     skeleton_3d_sequence: Skeleton3DSequence;

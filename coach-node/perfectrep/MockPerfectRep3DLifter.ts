@@ -16,15 +16,15 @@ export class MockPerfectRep3DLifter implements PerfectRep3DLifter {
         joint_index: jointIndex,
         x: Math.sin(frameIndex * 0.1 + jointIndex * 0.01),
         y: Math.cos(frameIndex * 0.1 + jointIndex * 0.01),
-        z: 0.25 + jointIndex * 0.005,
+        z: Math.sin(frameIndex * 0.07 + jointIndex * 0.02) * 0.95,
       })),
     }));
 
     return {
       skeleton_3d_sequence: skeleton3dSequenceSchema.parse({
         schema_version: '1.0.0',
-        joint_schema: 'human36m_17',
-        coordinate_space: 'model_normalized',
+        joint_schema: 'coco_17',
+        coordinate_space: 'normalized_n11',
         frames,
       }),
       artifact_refs: [{kind: 'other', uri: 'mock://perfectrep/x3d'}],

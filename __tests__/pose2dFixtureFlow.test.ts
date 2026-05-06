@@ -4,7 +4,7 @@ import {
   loadCoco17PoseFixture,
   parseCoco17FixtureKeypoints,
 } from '../athlete-node/vision/vitpose/loadCoco17PoseFixture';
-import {MockPerfectRep3DLifter} from '../coach-node/perfectrep/MockPerfectRep3DLifter';
+import {createCoachPerfectRepLifter} from '../coach-node/perfectrep/createCoachPerfectRepLifter';
 import {
   formSampleSchema,
   type MockImuPayload,
@@ -64,7 +64,7 @@ describe('COCO17 fixture and end-to-end flow', () => {
       pose2d_keypoints: pose,
     });
 
-    const lifter = new MockPerfectRep3DLifter();
+    const lifter = createCoachPerfectRepLifter();
     const result = await lifter.lift(formSample);
 
     expect(result.skeleton_3d_sequence.frames.length).toBe(pose.frames.length);

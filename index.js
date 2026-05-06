@@ -1,6 +1,7 @@
 /**
  * @format
  */
+import 'react-native-gesture-handler';
 import './polyfill-events.js';
 import 'react-native-get-random-values';
 import { Buffer } from 'buffer';

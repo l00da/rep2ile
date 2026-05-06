@@ -61,14 +61,32 @@ export function convertCoco17KeypointsToPose2DKeypoints(
   });
 }
 
+function resolveDefaultFixturePath(): string {
+  const relativeToModule = path.resolve(
+    __dirname,
+    '../../../fixtures/pose2d/coco17_squat_tiny.json',
+  );
+  if (fs.existsSync(relativeToModule)) {
+    return relativeToModule;
+  }
+  const relativeToRepoRoot = path.join(
+    process.cwd(),
+    'fixtures/pose2d/coco17_squat_tiny.json',
+  );
+  if (fs.existsSync(relativeToRepoRoot)) {
+    return relativeToRepoRoot;
+  }
+  throw new Error(
+    `COCO17 fixture not found (tried ${relativeToModule} and ${relativeToRepoRoot})`,
+  );
+}
+
 export function loadCoco17PoseFixture(params?: {
   fixturePath?: string;
   frameWidth?: number;
   frameHeight?: number;
 }): Pose2DKeypoints {
-  const fixturePath =
-    params?.fixturePath ??
-    path.resolve(__dirname, '../../../fixtures/pose2d/coco17_squat_tiny.json');
+  const fixturePath = params?.fixturePath ?? resolveDefaultFixturePath();
 
   const frameWidth = params?.frameWidth ?? 640;
   const frameHeight = params?.frameHeight ?? 480;

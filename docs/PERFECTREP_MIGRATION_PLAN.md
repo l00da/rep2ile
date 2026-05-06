@@ -2,9 +2,9 @@
 
 ## Target Architecture
 
-- `athlete-node` captures clip + mock IMU, optionally runs async/offline 2D extraction.
-- `relay/coordinator` routes packets and exposes lifecycle observability.
-- `coach-node` consumes `form_sample`, returns toy feedback now, and later PerfectRep-backed 3D output.
+- **`athlete-node`** — phone/browser: captures clip + mock IMU, optionally runs async/offline 2D extraction.
+- **`relay`** — routes packets between athlete and coach (LAN, ngrok, etc.) and exposes lifecycle observability.
+- **`coach-node`** — **local laptop** (not a hosted server): consumes `form_sample`, returns toy feedback now, and later PerfectRep-backed 3D output via **`infer_wild.py` as a subprocess on that machine**. No cloud deployment is required for the coach in MVP.
 
 ## Proposed Repo Layout
 
@@ -55,8 +55,8 @@ packages/
 - Preserve joint order as Human3.6M-17.
 - Emit JSON:
   - `frames[]` with `frame_index`, `timestamp_ms`, `joints[] {x,y,z}`
-  - `joint_schema: "human36m_17"`
-  - `coordinate_space: "model_normalized"` (or `"pixel_aligned"` if using `--pixel`)
+  - `joint_schema: "coco_17"`
+  - `coordinate_space: "normalized_n11"` ([-1, 1] per axis; PerfectRep without `--pixel`; bridge never passes `--pixel`)
 
 ## Phased Delivery
 
@@ -86,14 +86,15 @@ Exit criteria:
 
 ## Phase 2 - Real PerfectRep inference on Coach
 
-- Implement Python runner wrapper for `infer_wild.py`.
+- Implement Python runner wrapper for `infer_wild.py` on the **coach laptop** (filesystem paths + subprocess — see `docs/PERFECTREP_BRIDGE.md`).
+- Apply RepTile **`patches/perfectrep/infer_wild.py`** so inference can run **without** a reference video (keypoints JSON only); video remains optional for upstream-parity / `--pixel` debugging.
 - Inputs:
-  - video path
-  - keypoint json path
-  - checkpoint path
+  - keypoint json path (required)
+  - checkpoint path (required)
+  - `--fps` for JSON-only inference (no video upload in MVP flow)
 - Outputs:
   - parse `X3D.npy` to `skeleton_3d_sequence`
-  - optional artifact ref to rendered `X3D.mp4`
+  - persist converted `skeleton_3d_sequence.json` (required step after inference)
 
 Exit criteria:
 
@@ -116,7 +117,8 @@ Exit criteria:
   When pretrained performance is inadequate for your camera setup/domain and accuracy targets.
 
 - **What can pretrained checkpoints do now?**  
-  Run inference from external 2D keypoints and produce `X3D.npy` + `X3D.mp4`.
+  Run inference from external 2D keypoints and produce `X3D.npy`,
+  then convert to schema-valid `skeleton_3d_sequence.json`.
 
 - **Minimum passing demo without training?**  
   Athlete sends `form_sample` with fixture-derived `pose2d_keypoints` + mock IMU through relay; coach returns toy feedback + mock 3D sequence using mock lifter interface (optionally swap in pretrained PerfectRep later without protocol changes).
