@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(npx jest *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(find /Users/yukinolov/Project/rep2ile/ios/Pods -name *ultipeer* -o -name *Multipeer*)",
+      "Bash(python3 -m json.tool)"
     ]
   }
 }

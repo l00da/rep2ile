@@ -47,91 +47,150 @@
  *   acceptConnection() call from the inviter side is then a no-op.
  */
 
-import Multipeer from 'react-native-multipeer-connectivity';
+import { initSession, PeerState } from 'react-native-multipeer-connectivity';
+import type { MPCSession } from 'react-native-multipeer-connectivity';
+import type { EmitterSubscription } from 'react-native';
 import type { P2PAdapter, Subscription } from './P2PAdapter';
 
 // Bonjour service type: 1–15 chars, lowercase ASCII + hyphens.
 // Must match NSBonjourServices in Info.plist.
 const SERVICE_TYPE = 'reptile-p2p';
 
-// Payload type constant — MPC only sends raw bytes, always treated as BYTES=1.
+// MPC only supports sendText; binary payloads are base64-encoded.
 const PAYLOAD_TYPE_BYTES = 1;
 
 export class IOSMultipeerAdapter implements P2PAdapter {
-  // Stored accept/decline callbacks from incoming MPC invitations.
-  private pendingAccept: Map<string, () => void> = new Map();
-  private pendingDecline: Map<string, () => void> = new Map();
+  private session: MPCSession | null = null;
 
-  // The single onConnectionInitiated callback registered by the engine.
-  // Kept here so requestConnection() can fire it for the inviter side.
+  // Pending invitation handlers keyed by peer id.
+  private pendingInvitationHandlers: Map<
+    string,
+    (accept: boolean) => Promise<void>
+  > = new Map();
+
+  // Stored so requestConnection() can fire it for the inviter side.
   private connectionInitiatedCb:
     | ((endpointId: string, endpointName: string) => void)
     | null = null;
 
+  // Listener registrations that arrived before the session was created.
+  private deferredListeners: Array<(session: MPCSession) => void> = [];
+
+  // ---- session lifecycle ----
+
+  private _initSession(endpointName: string): MPCSession {
+    if (this.session) return this.session;
+
+    this.session = initSession({
+      displayName: endpointName,
+      serviceType: SERVICE_TYPE,
+      discoveryInfo: { n: endpointName },
+    });
+
+    // Flush deferred listener registrations now that session exists.
+    this.deferredListeners.forEach((fn) => fn(this.session!));
+    this.deferredListeners = [];
+
+    return this.session;
+  }
+
+  /**
+   * Returns a Subscription whose real listener is registered immediately if
+   * the session already exists, or deferred until _initSession() is called.
+   */
+  private _withSession(
+    register: (session: MPCSession) => EmitterSubscription,
+  ): Subscription {
+    let inner: EmitterSubscription | null = null;
+    let removed = false;
+
+    if (this.session) {
+      inner = register(this.session);
+    } else {
+      this.deferredListeners.push((session) => {
+        if (!removed) inner = register(session);
+      });
+    }
+
+    return {
+      remove: () => {
+        removed = true;
+        inner?.remove();
+      },
+    };
+  }
+
   // ---- advertising & discovery ----
 
   async startAdvertising(endpointName: string): Promise<void> {
-    Multipeer.advertise({ serviceType: SERVICE_TYPE, discoveryInfo: { n: endpointName } });
+    this._initSession(endpointName);
+    await this.session!.advertize();
   }
 
   async startDiscovery(): Promise<void> {
-    Multipeer.browse({ serviceType: SERVICE_TYPE });
+    // Session is normally created by startAdvertising first; guard just in case.
+    if (!this.session) this._initSession('0:unknown');
+    await this.session!.browse();
   }
 
   async stopAdvertising(): Promise<void> {
-    Multipeer.stopAdvertising();
+    await this.session?.stopAdvertizing();
   }
 
   async stopDiscovery(): Promise<void> {
-    Multipeer.stopBrowsing();
+    await this.session?.stopBrowsing();
   }
 
   async stopAllEndpoints(): Promise<void> {
-    Multipeer.stopAdvertising();
-    Multipeer.stopBrowsing();
-    Multipeer.disconnect();
+    await this.session?.stopAdvertizing();
+    await this.session?.stopBrowsing();
+    await this.session?.disconnect();
+    this.session = null;
   }
 
   // ---- connection lifecycle ----
 
-  async requestConnection(endpointName: string, endpointId: string): Promise<void> {
-    // Send the MPC invitation with our endpointName as context so the invitee
-    // can read it in the 'invite' handler.
-    Multipeer.invite({ id: endpointId }, endpointName, 30 /* timeout seconds */);
+  async requestConnection(
+    endpointName: string,
+    endpointId: string,
+  ): Promise<void> {
+    await this.session?.invite({
+      peerID: endpointId,
+      timeout: 30,
+      context: { n: endpointName },
+    });
 
-    // MPC does NOT fire an 'invite' event on the inviter.  Simulate it so
-    // the engine's _handleConnectionInitiated runs on our side too, populating
-    // pendingConnections and calling acceptConnection() (which is a no-op below).
+    // MPC does NOT fire an invitation event on the inviter side.
+    // Simulate it so the engine populates pendingConnections on both devices.
     this.connectionInitiatedCb?.(endpointId, endpointName);
   }
 
   async acceptConnection(endpointId: string): Promise<void> {
-    const accept = this.pendingAccept.get(endpointId);
-    if (accept) {
-      accept();
-      this.pendingAccept.delete(endpointId);
-      this.pendingDecline.delete(endpointId);
+    const handler = this.pendingInvitationHandlers.get(endpointId);
+    if (handler) {
+      await handler(true);
+      this.pendingInvitationHandlers.delete(endpointId);
     }
-    // If there is no stored accept callback we are the inviter — no-op is correct.
+    // Inviter side has no stored handler — no-op is correct.
   }
 
   async rejectConnection(endpointId: string): Promise<void> {
-    const decline = this.pendingDecline.get(endpointId);
-    if (decline) {
-      decline();
-      this.pendingAccept.delete(endpointId);
-      this.pendingDecline.delete(endpointId);
+    const handler = this.pendingInvitationHandlers.get(endpointId);
+    if (handler) {
+      await handler(false);
+      this.pendingInvitationHandlers.delete(endpointId);
     }
   }
 
   async disconnectFromEndpoint(_endpointId: string): Promise<void> {
-    // MPC disconnects all peers together.  Fine for RepTile's 1-vs-1 model.
-    Multipeer.disconnect();
+    // MPC disconnects all peers together — fine for RepTile's 1-vs-1 model.
+    await this.session?.disconnect();
   }
 
   async sendPayload(endpointId: string, bytes: Uint8Array): Promise<void> {
-    // react-native-multipeer-connectivity accepts Buffer or Uint8Array.
-    Multipeer.send([{ id: endpointId }], Buffer.from(bytes), true /* reliable */);
+    // MPC library only supports UTF-8 text; encode binary as base64.
+    const text = Buffer.from(bytes).toString('base64');
+    await this.session?.sendText(endpointId, text);
   }
 
   // ---- event subscriptions ----
@@ -139,41 +198,32 @@ export class IOSMultipeerAdapter implements P2PAdapter {
   onEndpointFound(
     cb: (endpointId: string, endpointName: string) => void,
   ): Subscription {
-    // discoveryInfo["n"] carries the endpointName micro-payload.
-    return Multipeer.addListener(
-      'peer.found',
-      (peer: { id: string }, info: Record<string, string>) => {
-        cb(peer.id, info?.n ?? '');
-      },
+    return this._withSession((session) =>
+      session.onFoundPeer(({ peer, discoveryInfo }) => {
+        cb(peer.id, discoveryInfo?.n ?? peer.displayName);
+      }),
     );
   }
 
   onEndpointLost(cb: (endpointId: string) => void): Subscription {
-    return Multipeer.addListener('peer.lost', (peer: { id: string }) => {
-      cb(peer.id);
-    });
+    return this._withSession((session) =>
+      session.onLostPeer(({ peer }) => cb(peer.id)),
+    );
   }
 
   onConnectionInitiated(
     cb: (endpointId: string, endpointName: string) => void,
   ): Subscription {
-    // Store the callback so requestConnection() can fire it for the inviter.
     this.connectionInitiatedCb = cb;
 
-    const sub = Multipeer.addListener(
-      'invite',
-      (
-        peer: { id: string },
-        context: string,
-        accept: () => void,
-        decline: () => void,
-      ) => {
-        // Store accept/decline for when the engine calls acceptConnection / rejectConnection.
-        this.pendingAccept.set(peer.id, accept);
-        this.pendingDecline.set(peer.id, decline);
-        // context is the inviter's endpointName ("1:uuid").
-        cb(peer.id, context ?? '');
-      },
+    const sub = this._withSession((session) =>
+      session.onReceivedPeerInvitation(({ peer, context, handler }) => {
+        this.pendingInvitationHandlers.set(peer.id, handler);
+        const name =
+          (context as Record<string, string> | undefined)?.n ??
+          peer.displayName;
+        cb(peer.id, name);
+      }),
     );
 
     return {
@@ -187,41 +237,31 @@ export class IOSMultipeerAdapter implements P2PAdapter {
   onConnectionResult(
     cb: (endpointId: string, isSuccess: boolean) => void,
   ): Subscription {
-    // 'peer.connected'    → handshake succeeded
-    // 'peer.disconnected' → handshake failed or peer dropped (engine handles both)
-    const connSub = Multipeer.addListener(
-      'peer.connected',
-      (peer: { id: string }) => cb(peer.id, true),
+    return this._withSession((session) =>
+      session.onPeerStateChanged(({ peer, state }) => {
+        if (state === PeerState.connected) cb(peer.id, true);
+        else if (state === PeerState.notConnected) cb(peer.id, false);
+      }),
     );
-    const failSub = Multipeer.addListener(
-      'peer.disconnected',
-      (peer: { id: string }) => cb(peer.id, false),
-    );
-
-    // Return a combined subscription.
-    return {
-      remove: () => {
-        connSub.remove();
-        failSub.remove();
-      },
-    };
   }
 
   onDisconnected(cb: (endpointId: string) => void): Subscription {
-    return Multipeer.addListener(
-      'peer.disconnected',
-      (peer: { id: string }) => cb(peer.id),
+    return this._withSession((session) =>
+      session.onPeerStateChanged(({ peer, state }) => {
+        if (state === PeerState.notConnected) cb(peer.id);
+      }),
     );
   }
 
   onPayloadReceived(
     cb: (endpointId: string, payloadType: number, payload: unknown) => void,
   ): Subscription {
-    return Multipeer.addListener(
-      'data',
-      (peer: { id: string }, data: Buffer) => {
-        cb(peer.id, PAYLOAD_TYPE_BYTES, new Uint8Array(data));
-      },
+    return this._withSession((session) =>
+      session.onReceivedText(({ peer, text }) => {
+        // Decode base64 back to binary.
+        const bytes = new Uint8Array(Buffer.from(text, 'base64'));
+        cb(peer.id, PAYLOAD_TYPE_BYTES, bytes);
+      }),
     );
   }
 }

@@ -33,18 +33,18 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>RepTile uses local networking to find nearby players for peer-to-peer fitness challenges.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>RepTile uses Bluetooth to discover nearby players for peer-to-peer fitness challenges.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_reptile-p2p._tcp</string>
 		<string>_reptile-p2p._udp</string>
 	</array>
-	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>RepTile uses Bluetooth to discover nearby players for peer-to-peer fitness challenges.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>RepTile uses your location to verify you are inside a supported venue.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>RepTile uses local networking to find nearby players for peer-to-peer fitness challenges.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>RepTile uses your location to verify you are inside a supported venue.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>RepTile uses your location to verify you are inside a supported venue.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
