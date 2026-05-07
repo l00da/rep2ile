@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
   useColorScheme,
 } from 'react-native';
@@ -21,8 +22,10 @@ import {
 } from 'react-native-safe-area-context';
 
 import { createMobileNode } from './src/node/createMobileNode.js';
+import { RepTileTestScreen } from './src/screens/RepTileTestScreen';
 
 type ConnStatus = 'idle' | 'connecting' | 'online' | 'error';
+type Tab = 'libp2p' | 'reptile';
 
 type Role = 'athlete' | 'coach' | 'nutrition';
 
@@ -30,6 +33,7 @@ const DEFAULT_AUTH_TOKEN = 'p2p-demo-alpha';
 
 function App() {
   const isDark = useColorScheme() === 'dark';
+  const [tab, setTab] = useState<Tab>('libp2p');
 
   const [role, setRole] = useState<Role>('athlete');
   const [authToken, setAuthToken] = useState(DEFAULT_AUTH_TOKEN);
@@ -131,6 +135,29 @@ function App() {
     <SafeAreaProvider>
       <SafeAreaView
         style={[styles.safe, isDark ? styles.safeDark : styles.safeLight]}>
+        {/* Tab bar */}
+        <View style={styles.tabBar}>
+          {(['libp2p', 'reptile'] as Tab[]).map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.tabBtn, tab === t && styles.tabBtnActive]}
+              onPress={() => setTab(t)}>
+              <Text
+                style={[
+                  styles.tabLabel,
+                  tab === t && styles.tabLabelActive,
+                  isDark && tab !== t && styles.tabLabelDark,
+                ]}>
+                {t === 'libp2p' ? 'libp2p' : 'RepTile P2P'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {tab === 'reptile' ? (
+          <RepTileTestScreen />
+        ) : (
+          <>
         <Text style={[styles.title, isDark && styles.textDark]}>
           PeerToPeer
         </Text>
@@ -208,6 +235,8 @@ function App() {
             </Text>
           ))}
         </ScrollView>
+          </>
+        )}
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -215,6 +244,23 @@ function App() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, padding: 16 },
+  tabBar: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    borderRadius: 10,
+    backgroundColor: '#e5e5ea',
+    padding: 2,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 7,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  tabBtnActive: { backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
+  tabLabel: { fontSize: 13, fontWeight: '500', color: '#666' },
+  tabLabelActive: { color: '#000', fontWeight: '600' },
+  tabLabelDark: { color: '#aaa' },
   safeLight: { backgroundColor: '#f5f5f7' },
   safeDark: { backgroundColor: '#111' },
   title: { fontSize: 22, fontWeight: '600', marginBottom: 12 },
