@@ -1,5 +1,5 @@
-import {FixturePose2DExtractor} from '../athlete-node/vision/vitpose/FixturePose2DExtractor';
-import {createCoachPerfectRepLifter} from '../coach-node/perfectrep/createCoachPerfectRepLifter';
+import {FixturePose2DExtractor} from '../athlete-node/vision/vitpose/FixturePose2DExtractor.ts';
+import {createCoachPerfectRepLifter} from '../coach-node/perfectrep/createCoachPerfectRepLifter.ts';
 import {
   coachAnalysisResultSchema,
   formSampleSchema,
@@ -9,8 +9,8 @@ import {
   type FormSample,
   type MockImuPayload,
   type VideoClipManifest,
-} from '../packages/protocol/schemas';
-import {RelayLifecycleRecorder} from './RelayLifecycleRecorder';
+} from '../packages/protocol/schemas.ts';
+import {RelayLifecycleRecorder} from './RelayLifecycleRecorder.ts';
 
 export const DEMO_RELAY_NODE_ID = 'relay-1';
 

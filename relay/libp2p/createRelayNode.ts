@@ -1,24 +1,25 @@
-import {noise} from '@chainsafe/libp2p-noise';
-import {yamux} from '@chainsafe/libp2p-yamux';
 import * as circuitRelay from '@libp2p/circuit-relay-v2';
+import {identify} from '@libp2p/identify';
 import {peerIdFromString} from '@libp2p/peer-id';
 import {webRTC} from '@libp2p/webrtc';
 import {webSockets} from '@libp2p/websockets';
 import {createLibp2p} from 'libp2p';
 
 import {
-  coachAnalysisResultSchema,
-  skeleton3dSequenceSchema,
-  type CoachAnalysisResult,
-  type FormSample,
-} from '../../packages/protocol/schemas';
-import {RelayLifecycleRecorder} from '../RelayLifecycleRecorder';
-import {FORM_SAMPLE_PROTOCOL} from '../../shared/protocols';
+  formSampleSchema,
+} from '../../packages/protocol/schemas.ts';
+import {RelayLifecycleRecorder} from '../RelayLifecycleRecorder.ts';
 import {
+  COACH_REGISTER_PROTOCOL,
+  FORM_SAMPLE_PROTOCOL,
+} from '../../shared/protocols.ts';
+import {
+  readJsonFromStream,
   parseFormSampleFromStream,
-  writeJsonToStream,
-} from '../../shared/reptileStreamCodec';
-import {routeFormSampleThroughCoach} from './relayFormSampleRouting';
+} from '../../shared/reptileStreamCodec.ts';
+import {routeFormSampleThroughCoach} from './relayFormSampleRouting.ts';
+import {RelayCoachRegistry} from './RelayCoachRegistry.ts';
+import {respondNoCoachAvailable} from './noCoachResponse.ts';
 
 function getCircuitRelayTransportFactory() {
   const named = (circuitRelay as any).circuitRelayTransport;
@@ -48,43 +49,14 @@ function shouldEnableWebRTC(): boolean {
   return typeof window !== 'undefined' && typeof (window as any).RTCPeerConnection === 'function';
 }
 
-function buildCoachUnavailableResult(sample: FormSample, relayNodeId: string): CoachAnalysisResult {
-  return coachAnalysisResultSchema.parse({
-    message_type: 'coach_analysis_result',
-    message_id: `relay-error-${sample.message_id}`,
-    session_id: sample.session_id,
-    sender_node_id: relayNodeId,
-    receiver_node_id: sample.sender_node_id,
-    created_at_iso: new Date().toISOString(),
-    source: 'mock',
-    feedback_summary: 'No coach peer is currently connected to relay.',
-    feedback_rules: [
-      {
-        rule_id: 'coach-unavailable',
-        severity: 'critical',
-        message:
-          'Relay could not route this form_sample because no coach peer is available.',
-      },
-    ],
-    skeleton_3d_sequence: skeleton3dSequenceSchema.parse({
-      schema_version: '1.0.0',
-      joint_schema: 'coco_17',
-      coordinate_space: 'normalized_n11',
-      frames: [
-        {
-          frame_index: 0,
-          timestamp_ms: 0,
-          joints: Array.from({length: 17}, (_, jointIndex) => ({
-            joint_index: jointIndex,
-            x: 0,
-            y: 0,
-            z: 0,
-          })),
-        },
-      ],
-    }),
-    artifact_refs: [{kind: 'other', uri: 'relay://coach-unavailable'}],
-  });
+function normalizeIncomingStreamData(
+  data: unknown,
+): {stream: unknown; connection: any | null} {
+  const record = data as {stream?: unknown; connection?: any};
+  if (record?.stream != null) {
+    return {stream: record.stream, connection: record.connection ?? null};
+  }
+  return {stream: data, connection: record?.connection ?? null};
 }
 
 export async function createRelayNode(options?: {
@@ -92,6 +64,11 @@ export async function createRelayNode(options?: {
   coachPeerId?: string;
   listenMultiaddrs?: string[];
 }): Promise<import('libp2p').Libp2p> {
+  const [{noise}, {yamux}] = await Promise.all([
+    import('@chainsafe/libp2p-noise'),
+    import('@chainsafe/libp2p-yamux'),
+  ]);
+
   const recorder = options?.recorder ?? new RelayLifecycleRecorder();
   const relayNode = await createLibp2p({
     addresses: {
@@ -107,6 +84,7 @@ export async function createRelayNode(options?: {
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     services: {
+      identify: identify(),
       ...(getCircuitRelayServerFactory() != null
         ? {circuitRelay: getCircuitRelayServerFactory()!()}
         : {}),
@@ -115,33 +93,81 @@ export async function createRelayNode(options?: {
 
   const relayPeerId = relayNode.peerId.toString();
   const fixedCoachPeerId = options?.coachPeerId ?? process.env.COACH_PEER_ID;
+  const coachRegistry = new RelayCoachRegistry();
 
-  await relayNode.handle(FORM_SAMPLE_PROTOCOL, async ({stream, connection}) => {
-    const formSample = await parseFormSampleFromStream(stream as any);
+  await relayNode.handle(COACH_REGISTER_PROTOCOL, async data => {
+    const {stream, connection} = normalizeIncomingStreamData(data);
+    try {
+      const payload = (await readJsonFromStream(stream as any)) as {
+        message_type?: string;
+        coach_node_id?: string;
+        created_at_ms?: number;
+      };
+      if (payload.message_type !== 'coach_register') {
+        throw new Error(`Invalid coach register payload type: ${payload.message_type}`);
+      }
 
-    const athletePeerId = connection.remotePeer.toString();
+      const coachPeerId =
+        connection?.remotePeer?.toString() ??
+        (typeof payload.coach_node_id === 'string' ? payload.coach_node_id : null);
+      if (coachPeerId == null || coachPeerId.trim() === '') {
+        throw new Error('Incoming coach register stream did not include a coach peer id');
+      }
+      coachRegistry.register({
+        coachPeerId,
+        coachMultiaddrs:
+          connection?.remoteAddr != null ? [connection.remoteAddr.toString()] : [],
+        registeredAtMs:
+          typeof payload.created_at_ms === 'number'
+            ? payload.created_at_ms
+            : Date.now(),
+      });
+      console.log(`[relay] coach registered ${coachPeerId}`);
+    } catch (error) {
+      console.error(
+        `[relay] coach registration failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      throw error;
+    }
+  });
+
+  await relayNode.handle(FORM_SAMPLE_PROTOCOL, async data => {
+    const {stream, connection} = normalizeIncomingStreamData(data);
+    const formSample = formSampleSchema.parse(
+      await parseFormSampleFromStream(stream as any),
+    );
+
+    const athletePeerId = connection?.remotePeer?.toString() ?? null;
     const candidateCoachPeerIds = new Set<string>();
+    const registeredCoachPeerId = coachRegistry.getCurrentCoachPeerId();
+    if (registeredCoachPeerId != null && registeredCoachPeerId !== athletePeerId) {
+      candidateCoachPeerIds.add(registeredCoachPeerId);
+    }
     if (fixedCoachPeerId != null && fixedCoachPeerId.trim() !== '') {
       candidateCoachPeerIds.add(fixedCoachPeerId.trim());
     }
     for (const conn of relayNode.getConnections()) {
       const candidate = conn.remotePeer.toString();
-      if (candidate !== athletePeerId) {
+      if (athletePeerId == null || candidate !== athletePeerId) {
         candidateCoachPeerIds.add(candidate);
       }
     }
 
-    let coachResult: CoachAnalysisResult | null = null;
     let selectedCoachPeerId: string | null = null;
     if (candidateCoachPeerIds.size === 0) {
-      coachResult = buildCoachUnavailableResult(formSample, relayPeerId);
-      await writeJsonToStream(stream as any, coachResult);
-      recorder.recordRelayForwardedToAthlete(formSample, coachResult, relayPeerId);
+      await respondNoCoachAvailable({
+        athleteStream: stream as any,
+        sample: formSample,
+        relayNodeId: relayPeerId,
+        recorder,
+      });
       return;
     }
 
     try {
-      coachResult = await routeFormSampleThroughCoach({
+      await routeFormSampleThroughCoach({
         formSample,
         athleteStream: stream as any,
         relayNodeId: relayPeerId,
@@ -174,7 +200,7 @@ export async function createRelayNode(options?: {
       );
     }
 
-    if (selectedCoachPeerId != null && coachResult != null) {
+    if (selectedCoachPeerId != null) {
       console.log(`[relay] forwarded via coach ${selectedCoachPeerId}`);
     }
   });

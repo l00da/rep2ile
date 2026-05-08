@@ -2,12 +2,12 @@ import {
   coachAnalysisResultSchema,
   type CoachAnalysisResult,
   type FormSample,
-} from '../../packages/protocol/schemas';
-import {RelayLifecycleRecorder} from '../RelayLifecycleRecorder';
+} from '../../packages/protocol/schemas.ts';
+import {RelayLifecycleRecorder} from '../RelayLifecycleRecorder.ts';
 import {
   parseCoachAnalysisResultFromStream,
   writeJsonToStream,
-} from '../../shared/reptileStreamCodec';
+} from '../../shared/reptileStreamCodec.ts';
 
 type StreamLike = {
   source: AsyncIterable<Uint8Array>;

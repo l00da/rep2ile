@@ -1,7 +1,7 @@
 import type {
   CoachAnalysisResult,
   FormSample,
-} from '../packages/protocol/schemas';
+} from '../packages/protocol/schemas.ts';
 
 const DEFAULT_MAX_PREVIEW_CHARS = 900;
 

@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {z} from 'zod';
-import {pose2dKeypointsSchema} from '../../../packages/protocol/schemas';
-import type {Pose2DKeypoints} from '../../../packages/protocol/schemas';
+import {pose2dKeypointsSchema} from '../../../packages/protocol/schemas.ts';
+import type {Pose2DKeypoints} from '../../../packages/protocol/schemas.ts';
 
 const COCO17_KEYPOINTS_PER_FRAME = 17 * 3;
 
@@ -62,13 +62,6 @@ export function convertCoco17KeypointsToPose2DKeypoints(
 }
 
 function resolveDefaultFixturePath(): string {
-  const relativeToModule = path.resolve(
-    __dirname,
-    '../../../fixtures/pose2d/coco17_squat_tiny.json',
-  );
-  if (fs.existsSync(relativeToModule)) {
-    return relativeToModule;
-  }
   const relativeToRepoRoot = path.join(
     process.cwd(),
     'fixtures/pose2d/coco17_squat_tiny.json',
@@ -77,7 +70,7 @@ function resolveDefaultFixturePath(): string {
     return relativeToRepoRoot;
   }
   throw new Error(
-    `COCO17 fixture not found (tried ${relativeToModule} and ${relativeToRepoRoot})`,
+    `COCO17 fixture not found at ${relativeToRepoRoot}`,
   );
 }
 

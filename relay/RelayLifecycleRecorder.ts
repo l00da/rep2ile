@@ -4,11 +4,11 @@ import {
   type FormSample,
   type RelayObservation,
   type RelayObservationEventKind,
-} from '../packages/protocol/schemas';
+} from '../packages/protocol/schemas.ts';
 import {
   previewCoachAnalysisForRelay,
   previewFormSampleForRelay,
-} from './payloadPreview';
+} from './payloadPreview.ts';
 
 export type RelayObservationStatus =
   | 'created'

@@ -9,7 +9,11 @@
     "postinstall": "patch-package",
     "start": "react-native start",
     "test": "NODE_OPTIONS='--localstorage-file=.jest-localstorage' jest --runInBand",
-    "demo:relay": "tsx scripts/demo-form-sample-relay-flow.ts"
+    "demo:relay": "tsx scripts/demo-form-sample-relay-flow.ts",
+    "p2p:check": "node --experimental-transform-types --experimental-specifier-resolution=node scripts/check-p2p-imports.ts",
+    "p2p:relay": "node --experimental-transform-types --experimental-specifier-resolution=node scripts/start-relay.ts",
+    "p2p:coach": "node --experimental-transform-types --experimental-specifier-resolution=node scripts/start-coach.ts",
+    "p2p:athlete-smoke": "node --experimental-transform-types --experimental-specifier-resolution=node scripts/send-athlete-smoke.ts"
   },
   "dependencies": {
     "@chainsafe/libp2p-gossipsub": "^14.1.2",

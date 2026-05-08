@@ -1,6 +1,6 @@
-import type {PerfectRep3DLifter} from './PerfectRep3DLifter';
-import {getPerfectRepEnv, validatePerfectRepStartup} from './perfectRepEnv';
-import {MockPerfectRep3DLifter} from './MockPerfectRep3DLifter';
+import type {PerfectRep3DLifter} from './PerfectRep3DLifter.ts';
+import {getPerfectRepEnv, validatePerfectRepStartup} from './perfectRepEnv.ts';
+import {MockPerfectRep3DLifter} from './MockPerfectRep3DLifter.ts';
 
 /**
  * Coach-side 3D lifter for demos and relays on **your local laptop** (the coach

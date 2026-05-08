@@ -3,7 +3,7 @@ import {
   formSampleSchema,
   type CoachAnalysisResult,
   type FormSample,
-} from '../packages/protocol/schemas';
+} from '../packages/protocol/schemas.ts';
 
 type StreamLike = {
   source: AsyncIterable<Uint8Array>;
@@ -30,6 +30,63 @@ function coerceChunk(chunk: Uint8Array | {subarray: (start?: number, end?: numbe
     return chunk;
   }
   return chunk.subarray();
+}
+
+function resolveStreamLike(stream: unknown): StreamLike {
+  const direct = stream as Partial<StreamLike>;
+  if (typeof direct?.sink === 'function' && direct?.source != null) {
+    return direct as StreamLike;
+  }
+
+  const iterableOnly = stream as {[Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array>};
+  if (typeof iterableOnly?.[Symbol.asyncIterator] === 'function') {
+    return {
+      source: stream as AsyncIterable<Uint8Array>,
+      sink: async () => {
+        throw new Error('Provided stream is read-only and does not expose sink/write methods');
+      },
+    };
+  }
+
+  const messageStream = stream as {
+    send?: (chunk: Uint8Array) => boolean;
+    onDrain?: () => Promise<void>;
+    [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array>;
+  };
+  if (
+    typeof messageStream?.send === 'function' &&
+    typeof messageStream?.[Symbol.asyncIterator] === 'function'
+  ) {
+    return {
+      source: {
+        [Symbol.asyncIterator]: () => messageStream[Symbol.asyncIterator]!(),
+      },
+      sink: async (source: AsyncIterable<Uint8Array>) => {
+        for await (const chunk of source) {
+          const canSendMore = messageStream.send!(chunk);
+          if (!canSendMore && typeof messageStream.onDrain === 'function') {
+            await messageStream.onDrain();
+          }
+        }
+      },
+    };
+  }
+
+  const nested = (stream as {stream?: unknown})?.stream as Partial<StreamLike> | undefined;
+  if (typeof nested?.sink === 'function' && nested?.source != null) {
+    return nested as StreamLike;
+  }
+
+  const directKeys = stream != null && typeof stream === 'object' ? Object.keys(stream as Record<string, unknown>) : [];
+  const nestedKeys =
+    nested != null && typeof nested === 'object'
+      ? Object.keys(nested as Record<string, unknown>)
+      : [];
+  throw new Error(
+    `Provided stream does not expose a libp2p-compatible source/sink (keys=${directKeys.join(
+      ',',
+    )}; nestedKeys=${nestedKeys.join(',')})`,
+  );
 }
 
 async function createFrameReader(source: AsyncIterable<Uint8Array>) {
@@ -85,7 +142,20 @@ export async function writeJsonToStream(stream: StreamLike, value: unknown): Pro
   view.setUint32(0, payload.byteLength, false);
   frame.set(payload, LENGTH_PREFIX_BYTES);
 
-  await stream.sink(
+  const messageStream = stream as {
+    send?: (chunk: Uint8Array) => boolean;
+    onDrain?: () => Promise<void>;
+  };
+  if (typeof messageStream.send === 'function') {
+    const canSendMore = messageStream.send(frame);
+    if (!canSendMore && typeof messageStream.onDrain === 'function') {
+      await messageStream.onDrain();
+    }
+    return;
+  }
+
+  const target = resolveStreamLike(stream);
+  await target.sink(
     (async function* frameGenerator() {
       yield frame;
     })(),
@@ -93,7 +163,8 @@ export async function writeJsonToStream(stream: StreamLike, value: unknown): Pro
 }
 
 export async function readJsonFromStream(stream: StreamLike): Promise<unknown> {
-  const reader = await createFrameReader(stream.source);
+  const target = resolveStreamLike(stream);
+  const reader = await createFrameReader(target.source);
   const lengthBytes = await reader.readExact(LENGTH_PREFIX_BYTES);
   const view = new DataView(
     lengthBytes.buffer,

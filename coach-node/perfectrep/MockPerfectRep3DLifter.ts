@@ -1,6 +1,9 @@
-import {skeleton3dSequenceSchema} from '../../packages/protocol/schemas';
-import type {FormSample, Skeleton3DSequence} from '../../packages/protocol/schemas';
-import type {PerfectRep3DLifter} from './PerfectRep3DLifter';
+import {skeleton3dSequenceSchema} from '../../packages/protocol/schemas.ts';
+import type {
+  FormSample,
+  Skeleton3DSequence,
+} from '../../packages/protocol/schemas.ts';
+import type {PerfectRep3DLifter} from './PerfectRep3DLifter.ts';
 
 export class MockPerfectRep3DLifter implements PerfectRep3DLifter {
   async lift(sample: FormSample): Promise<{

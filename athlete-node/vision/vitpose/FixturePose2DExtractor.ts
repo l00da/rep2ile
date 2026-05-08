@@ -1,9 +1,9 @@
 import type {
   Pose2DKeypoints,
   VideoClipManifest,
-} from '../../../packages/protocol/schemas';
-import {loadCoco17PoseFixture} from './loadCoco17PoseFixture';
-import type {VitPoseExtractor} from './VitPoseExtractor';
+} from '../../../packages/protocol/schemas.ts';
+import {loadCoco17PoseFixture} from './loadCoco17PoseFixture.ts';
+import type {VitPoseExtractor} from './VitPoseExtractor.ts';
 
 export class FixturePose2DExtractor implements VitPoseExtractor {
   async extractFromClip(

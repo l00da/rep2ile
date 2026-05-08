@@ -1,7 +1,7 @@
 import type {
   FormSample,
   Skeleton3DSequence,
-} from '../../packages/protocol/schemas';
+} from '../../packages/protocol/schemas.ts';
 
 /** Implemented on the **coach peer (local laptop)** — not on the athlete phone. */
 export interface PerfectRep3DLifter {
