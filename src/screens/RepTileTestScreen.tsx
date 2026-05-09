@@ -17,12 +17,14 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  Alert,
   useColorScheme,
 } from 'react-native';
 
 import { ghostIdentity } from '../identity/GhostIdentity';
 import { resonanceEngine } from '../p2p/ResonanceEngine';
 import type { RepEvent } from '../p2p/PayloadValidator';
+import type { ChallengeCallback } from '../p2p/ResonanceEngine';
 
 interface PeerEntry {
   endpointId: string;
@@ -66,6 +68,36 @@ export function RepTileTestScreen() {
     appendLog('Identity burned.');
   }, [appendLog]);
 
+  // ---- challenge consent ----
+
+  const handleChallengeReceived = useCallback<ChallengeCallback>(
+    (endpointId, tempID, respond) => {
+      appendLog(`Challenge from ${tempID.slice(0, 8)}…`);
+      Alert.alert(
+        'Challenge received',
+        `${tempID.slice(0, 13)}… wants to enter the arena.`,
+        [
+          {
+            text: 'Reject',
+            style: 'destructive',
+            onPress: () => {
+              appendLog(`Rejected challenge from ${tempID.slice(0, 8)}`);
+              respond(false);
+            },
+          },
+          {
+            text: 'Accept',
+            onPress: () => {
+              appendLog(`Accepted challenge from ${tempID.slice(0, 8)}`);
+              respond(true);
+            },
+          },
+        ],
+      );
+    },
+    [appendLog],
+  );
+
   // ---- broadcast ----
 
   const handleStart = useCallback(async () => {
@@ -96,6 +128,8 @@ export function RepTileTestScreen() {
           setArenaPeers(entries);
           setEngineState(resonanceEngine.getEngineState());
         },
+        // onChallengeReceived
+        handleChallengeReceived,
       );
       setEngineState(resonanceEngine.getEngineState());
       appendLog('Broadcast started — advertising + scanning.');
@@ -112,6 +146,19 @@ export function RepTileTestScreen() {
       setNearbyPeers([]);
       setArenaPeers([]);
       appendLog('Stopped.');
+    }
+  }, [appendLog, handleChallengeReceived]);
+
+  // ---- end arena ----
+
+  const handleEndArena = useCallback(async () => {
+    try {
+      await resonanceEngine.endArena();
+      setEngineState(resonanceEngine.getEngineState());
+      setArenaPeers([]);
+      appendLog('Arena ended — returned to ambient.');
+    } catch (e) {
+      appendLog(`End arena error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, [appendLog]);
 
@@ -187,18 +234,27 @@ export function RepTileTestScreen() {
       {nearbyPeers.length === 0 ? (
         <Text style={[styles.hint, T]}>None found yet…</Text>
       ) : (
-        nearbyPeers.map((p) => (
-          <View key={p.endpointId} style={styles.peerRow}>
-            <Text style={[styles.mono, styles.peerID, T]} numberOfLines={1}>
-              {p.tempID.slice(0, 13)}…
-            </Text>
-            <TouchableOpacity
-              style={styles.challengeBtn}
-              onPress={() => handleChallenge(p.endpointId, p.tempID)}>
-              <Text style={styles.challengeLabel}>Challenge</Text>
-            </TouchableOpacity>
-          </View>
-        ))
+        nearbyPeers.map((p) => {
+          const inArena = arenaPeers.some((a) => a.endpointId === p.endpointId);
+          return (
+            <View key={p.endpointId} style={styles.peerRow}>
+              <Text style={[styles.mono, styles.peerID, T]} numberOfLines={1}>
+                {p.tempID.slice(0, 13)}…
+              </Text>
+              {inArena ? (
+                <View style={styles.inArenaTag}>
+                  <Text style={styles.inArenaLabel}>In Arena</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.challengeBtn}
+                  onPress={() => handleChallenge(p.endpointId, p.tempID)}>
+                  <Text style={styles.challengeLabel}>Challenge</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        })
       )}
 
       {/* Arena peers */}
@@ -218,6 +274,11 @@ export function RepTileTestScreen() {
               style={styles.repBtn}
               onPress={() => handleSendRep(p.endpointId)}>
               <Text style={styles.repLabel}>Send Rep ▲</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.endArenaBtn}
+              onPress={handleEndArena}>
+              <Text style={styles.endArenaLabel}>End</Text>
             </TouchableOpacity>
           </View>
         ))
@@ -295,6 +356,20 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   repLabel: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  endArenaBtn: {
+    backgroundColor: '#c00',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  endArenaLabel: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  inArenaTag: {
+    backgroundColor: '#8e8e93',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  inArenaLabel: { color: '#fff', fontSize: 12, fontWeight: '600' },
   counters: {
     flexDirection: 'row',
     gap: 20,

@@ -1,0 +1,49 @@
+diff --git a/node_modules/react-native-multipeer-connectivity/ios/MultipeerConnectivity.swift b/node_modules/react-native-multipeer-connectivity/ios/MultipeerConnectivity.swift
+index 3dff192..c2e0c2c 100644
+--- a/node_modules/react-native-multipeer-connectivity/ios/MultipeerConnectivity.swift
++++ b/node_modules/react-native-multipeer-connectivity/ios/MultipeerConnectivity.swift
+@@ -148,10 +148,16 @@ class MultipeerConnectivity: RCTEventEmitter {
+         let text = (options["text"] as! String)
+ 
+         do {
+-            if  let peerID = peerIds.first(where: {
+-                $0.0 == rnPeerID
+-            }) {
+-                try session?.send(text.data(using: .utf8)! , toPeers: [peerID.1], with: .reliable)
++            // Look up the MCPeerID by hash. peerIds may hold a stale object if MPC
++            // fired lostPeer+foundPeer while the peer was still connected (happens when
++            // advertising is restarted). Fall back to session.connectedPeers so we
++            // always send via the object the session actually knows about.
++            var target: MCPeerID? = peerIds.first(where: { $0.0 == rnPeerID })?.1
++            if target == nil || session?.connectedPeers.contains(target!) != true {
++                target = session?.connectedPeers.first(where: { String($0.hash) == rnPeerID })
++            }
++            if let peer = target {
++                try session?.send(text.data(using: .utf8)!, toPeers: [peer], with: .reliable)
+             }
+             resolve(nil)
+         } catch {
+@@ -200,7 +206,11 @@ extension MultipeerConnectivity: MCNearbyServiceBrowserDelegate {
+ 
+     func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String: String]?) {
+         let rnPeerID = String(peerID.hash);
+-        peerIds.append((rnPeerID, peerID));
++        // Only append if not already tracked — avoids duplicate entries from
++        // repeated foundPeer events (e.g. after advertising is restarted).
++        if !peerIds.contains(where: { $0.0 == rnPeerID }) {
++            peerIds.append((rnPeerID, peerID));
++        }
+         sendEvent(withName: "onFoundPeer", body: [
+             "peer": peerID.toRNPeer(rnPeerID),
+             "discoveryInfo": info != nil ? info : nil
+@@ -208,6 +218,10 @@ extension MultipeerConnectivity: MCNearbyServiceBrowserDelegate {
+     }
+ 
+     func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {
++        // Do NOT remove a peer that is currently connected to the session.
++        // MPC can fire lostPeer for an active peer when advertising is briefly
++        // restarted; removing it would leave sendText with no valid MCPeerID.
++        if session?.connectedPeers.contains(peerID) == true { return }
+         if let idx = peerIds.firstIndex( where: {
+             $0.1 == peerID
+         }) {

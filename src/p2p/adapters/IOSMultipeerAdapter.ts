@@ -56,8 +56,9 @@ import type { P2PAdapter, Subscription } from './P2PAdapter';
 // Must match NSBonjourServices in Info.plist.
 const SERVICE_TYPE = 'reptile-p2p';
 
-// MPC only supports sendText; binary payloads are base64-encoded.
 const PAYLOAD_TYPE_BYTES = 1;
+
+const TAG = '[MPC]';
 
 export class IOSMultipeerAdapter implements P2PAdapter {
   private session: MPCSession | null = null;
@@ -75,6 +76,11 @@ export class IOSMultipeerAdapter implements P2PAdapter {
 
   // Listener registrations that arrived before the session was created.
   private deferredListeners: Array<(session: MPCSession) => void> = [];
+
+  // Tracks peers that have reached the connected state.
+  // Used to distinguish "invitation rejected" (never connected → onConnectionResult false)
+  // from "arena peer disconnected" (was connected → onDisconnected).
+  private connectedPeers: Set<string> = new Set();
 
   // ---- session lifecycle ----
 
@@ -123,29 +129,35 @@ export class IOSMultipeerAdapter implements P2PAdapter {
   // ---- advertising & discovery ----
 
   async startAdvertising(endpointName: string): Promise<void> {
+    console.log(`${TAG} startAdvertising name=${endpointName}`);
     this._initSession(endpointName);
     await this.session!.advertize();
   }
 
   async startDiscovery(): Promise<void> {
+    console.log(`${TAG} startDiscovery`);
     // Session is normally created by startAdvertising first; guard just in case.
     if (!this.session) this._initSession('0:unknown');
     await this.session!.browse();
   }
 
   async stopAdvertising(): Promise<void> {
+    console.log(`${TAG} stopAdvertising`);
     await this.session?.stopAdvertizing();
   }
 
   async stopDiscovery(): Promise<void> {
+    console.log(`${TAG} stopDiscovery`);
     await this.session?.stopBrowsing();
   }
 
   async stopAllEndpoints(): Promise<void> {
+    console.log(`${TAG} stopAllEndpoints`);
     await this.session?.stopAdvertizing();
     await this.session?.stopBrowsing();
     await this.session?.disconnect();
     this.session = null;
+    this.connectedPeers.clear();
   }
 
   // ---- connection lifecycle ----
@@ -154,6 +166,7 @@ export class IOSMultipeerAdapter implements P2PAdapter {
     endpointName: string,
     endpointId: string,
   ): Promise<void> {
+    console.log(`${TAG} requestConnection to peer=${endpointId.slice(0, 8)} name=${endpointName}`);
     await this.session?.invite({
       peerID: endpointId,
       timeout: 30,
@@ -168,6 +181,7 @@ export class IOSMultipeerAdapter implements P2PAdapter {
   async acceptConnection(endpointId: string): Promise<void> {
     const handler = this.pendingInvitationHandlers.get(endpointId);
     if (handler) {
+      console.log(`${TAG} acceptConnection peer=${endpointId.slice(0, 8)}`);
       await handler(true);
       this.pendingInvitationHandlers.delete(endpointId);
     }
@@ -177,19 +191,24 @@ export class IOSMultipeerAdapter implements P2PAdapter {
   async rejectConnection(endpointId: string): Promise<void> {
     const handler = this.pendingInvitationHandlers.get(endpointId);
     if (handler) {
+      console.log(`${TAG} rejectConnection peer=${endpointId.slice(0, 8)}`);
       await handler(false);
       this.pendingInvitationHandlers.delete(endpointId);
     }
   }
 
-  async disconnectFromEndpoint(_endpointId: string): Promise<void> {
+  async disconnectFromEndpoint(endpointId: string): Promise<void> {
+    console.log(`${TAG} disconnectFromEndpoint peer=${endpointId.slice(0, 8)}`);
     // MPC disconnects all peers together — fine for RepTile's 1-vs-1 model.
     await this.session?.disconnect();
   }
 
   async sendPayload(endpointId: string, bytes: Uint8Array): Promise<void> {
-    // MPC library only supports UTF-8 text; encode binary as base64.
-    const text = Buffer.from(bytes).toString('base64');
+    // MPC only supports UTF-8 text. The payload is always a JSON string encoded
+    // as UTF-8 bytes, so we decode back to string and send directly — no base64
+    // needed, which avoids polyfill inconsistencies in React Native.
+    const text = new TextDecoder('utf-8').decode(bytes);
+    console.log(`${TAG} sendPayload peer=${endpointId.slice(0, 8)} len=${text.length} text=${text}`);
     await this.session?.sendText(endpointId, text);
   }
 
@@ -200,14 +219,19 @@ export class IOSMultipeerAdapter implements P2PAdapter {
   ): Subscription {
     return this._withSession((session) =>
       session.onFoundPeer(({ peer, discoveryInfo }) => {
-        cb(peer.id, discoveryInfo?.n ?? peer.displayName);
+        const name = discoveryInfo?.n ?? peer.displayName;
+        console.log(`${TAG} onFoundPeer id=${peer.id} name=${name}`);
+        cb(peer.id, name);
       }),
     );
   }
 
   onEndpointLost(cb: (endpointId: string) => void): Subscription {
     return this._withSession((session) =>
-      session.onLostPeer(({ peer }) => cb(peer.id)),
+      session.onLostPeer(({ peer }) => {
+        console.log(`${TAG} onLostPeer id=${peer.id.slice(0, 8)}`);
+        cb(peer.id);
+      }),
     );
   }
 
@@ -218,10 +242,11 @@ export class IOSMultipeerAdapter implements P2PAdapter {
 
     const sub = this._withSession((session) =>
       session.onReceivedPeerInvitation(({ peer, context, handler }) => {
-        this.pendingInvitationHandlers.set(peer.id, handler);
         const name =
           (context as Record<string, string> | undefined)?.n ??
           peer.displayName;
+        console.log(`${TAG} onReceivedInvitation from peer=${peer.id.slice(0, 8)} name=${name}`);
+        this.pendingInvitationHandlers.set(peer.id, handler);
         cb(peer.id, name);
       }),
     );
@@ -237,18 +262,32 @@ export class IOSMultipeerAdapter implements P2PAdapter {
   onConnectionResult(
     cb: (endpointId: string, isSuccess: boolean) => void,
   ): Subscription {
+    // Only fires cb(false) when the peer NEVER reached connected state,
+    // i.e. the invitation was rejected. Arena-level disconnects are handled
+    // exclusively by onDisconnected below.
     return this._withSession((session) =>
       session.onPeerStateChanged(({ peer, state }) => {
-        if (state === PeerState.connected) cb(peer.id, true);
-        else if (state === PeerState.notConnected) cb(peer.id, false);
+        console.log(`${TAG} onPeerStateChanged id=${peer.id} state=${state}`);
+        if (state === PeerState.connected) {
+          this.connectedPeers.add(peer.id);
+          cb(peer.id, true);
+        } else if (state === PeerState.notConnected && !this.connectedPeers.has(peer.id)) {
+          // Invitation was rejected before connection was established.
+          cb(peer.id, false);
+        }
       }),
     );
   }
 
   onDisconnected(cb: (endpointId: string) => void): Subscription {
+    // Only fires when an already-connected arena peer disconnects.
     return this._withSession((session) =>
       session.onPeerStateChanged(({ peer, state }) => {
-        if (state === PeerState.notConnected) cb(peer.id);
+        if (state === PeerState.notConnected && this.connectedPeers.has(peer.id)) {
+          console.log(`${TAG} onDisconnected (was arena) peer=${peer.id.slice(0, 8)}`);
+          this.connectedPeers.delete(peer.id);
+          cb(peer.id);
+        }
       }),
     );
   }
@@ -258,8 +297,10 @@ export class IOSMultipeerAdapter implements P2PAdapter {
   ): Subscription {
     return this._withSession((session) =>
       session.onReceivedText(({ peer, text }) => {
-        // Decode base64 back to binary.
-        const bytes = new Uint8Array(Buffer.from(text, 'base64'));
+        // The payload was sent as a plain UTF-8 string (JSON).
+        // Re-encode to Uint8Array so the engine's PayloadValidator can decode it.
+        console.log(`${TAG} onReceivedText from peer=${peer.id} len=${text.length} text=${text}`);
+        const bytes = new Uint8Array(new TextEncoder().encode(text));
         cb(peer.id, PAYLOAD_TYPE_BYTES, bytes);
       }),
     );

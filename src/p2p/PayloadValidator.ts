@@ -127,7 +127,7 @@ export class PayloadValidator {
     // Step 1 — UTF-8 decode (fatal mode: malformed sequences → immediate ban)
     let text: string;
     try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(rawBytes);
+      text = new TextDecoder('utf-8').decode(rawBytes);
     } catch {
       return this._ban(endpointId, new InvalidPayloadError(endpointId, 'non-UTF8 bytes'));
     }
