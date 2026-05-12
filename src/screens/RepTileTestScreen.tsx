@@ -24,7 +24,7 @@ import {
 import { ghostIdentity } from '../identity/GhostIdentity';
 import { resonanceEngine } from '../p2p/ResonanceEngine';
 import type { RepEvent } from '../p2p/PayloadValidator';
-import type { ChallengeCallback } from '../p2p/ResonanceEngine';
+import type { ChallengeCallback, StateCode } from '../p2p/ResonanceEngine';
 
 interface PeerEntry {
   endpointId: string;
@@ -38,6 +38,7 @@ export function RepTileTestScreen() {
   const [engineState, setEngineState] = useState(resonanceEngine.getEngineState());
   const [nearbyPeers, setNearbyPeers] = useState<PeerEntry[]>([]);
   const [arenaPeers, setArenaPeers] = useState<PeerEntry[]>([]);
+  const [peerStates, setPeerStates] = useState<Map<string, StateCode>>(new Map());
   const [repsSent, setRepsSent] = useState(0);
   const [repsReceived, setRepsReceived] = useState(0);
   const [log, setLog] = useState<string[]>([]);
@@ -113,6 +114,7 @@ export function RepTileTestScreen() {
             resonanceEngine.getNearbyEndpoints().entries(),
           ).map(([eid, tid]) => ({ endpointId: eid, tempID: tid }));
           setNearbyPeers(entries);
+          setPeerStates(new Map(resonanceEngine.getPeerStateMap()));
         },
         // onRepReceived
         (event: RepEvent, fromEndpointId: string) => {
@@ -127,6 +129,9 @@ export function RepTileTestScreen() {
           }));
           setArenaPeers(entries);
           setEngineState(resonanceEngine.getEngineState());
+          // Force-sync peerStateMap so the nearby list reflects arena status immediately
+          // without waiting for the next BLE foundPeer event.
+          setPeerStates(new Map(resonanceEngine.getPeerStateMap()));
         },
         // onChallengeReceived
         handleChallengeReceived,
@@ -145,6 +150,7 @@ export function RepTileTestScreen() {
       setEngineState('stopped');
       setNearbyPeers([]);
       setArenaPeers([]);
+      setPeerStates(new Map());
       appendLog('Stopped.');
     }
   }, [appendLog, handleChallengeReceived]);
@@ -235,7 +241,9 @@ export function RepTileTestScreen() {
         <Text style={[styles.hint, T]}>None found yet…</Text>
       ) : (
         nearbyPeers.map((p) => {
-          const inArena = arenaPeers.some((a) => a.endpointId === p.endpointId);
+          const inArena =
+            arenaPeers.some((a) => a.endpointId === p.endpointId) ||
+            peerStates.get(p.endpointId) === '2';
           return (
             <View key={p.endpointId} style={styles.peerRow}>
               <Text style={[styles.mono, styles.peerID, T]} numberOfLines={1}>

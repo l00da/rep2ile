@@ -49,6 +49,7 @@
 
 import { initSession, PeerState } from 'react-native-multipeer-connectivity';
 import type { MPCSession } from 'react-native-multipeer-connectivity';
+import { NativeModules } from 'react-native';
 import type { EmitterSubscription } from 'react-native';
 import type { P2PAdapter, Subscription } from './P2PAdapter';
 
@@ -131,7 +132,11 @@ export class IOSMultipeerAdapter implements P2PAdapter {
   async startAdvertising(endpointName: string): Promise<void> {
     console.log(`${TAG} startAdvertising name=${endpointName}`);
     this._initSession(endpointName);
-    await this.session!.advertize();
+    // Use restartAdvertising (not advertize) so discoveryInfo is updated every time.
+    // This allows state changes (ambient/seeking/arena) to be visible to browsers.
+    await NativeModules.MultipeerConnectivity.restartAdvertising({
+      discoveryInfo: { n: endpointName },
+    });
   }
 
   async startDiscovery(): Promise<void> {

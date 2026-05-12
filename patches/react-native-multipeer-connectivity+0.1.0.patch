@@ -1,8 +1,62 @@
+diff --git a/node_modules/react-native-multipeer-connectivity/ios/MultipeerConnectivity.mm b/node_modules/react-native-multipeer-connectivity/ios/MultipeerConnectivity.mm
+index 62d0c8a..8c36eb2 100644
+--- a/node_modules/react-native-multipeer-connectivity/ios/MultipeerConnectivity.mm
++++ b/node_modules/react-native-multipeer-connectivity/ios/MultipeerConnectivity.mm
+@@ -34,4 +34,8 @@ @interface RCT_EXTERN_MODULE(MultipeerConnectivity, RCTEventEmitter)
+ RCT_EXTERN_METHOD(disconnect:(RCTPromiseResolveBlock)resolve
+                   rejecter:(RCTPromiseRejectBlock)reject)
+ 
++RCT_EXTERN_METHOD(restartAdvertising:(NSDictionary)options
++                  resolver:(RCTPromiseResolveBlock)resolve
++                  rejecter:(RCTPromiseRejectBlock)reject)
++
+ @end
 diff --git a/node_modules/react-native-multipeer-connectivity/ios/MultipeerConnectivity.swift b/node_modules/react-native-multipeer-connectivity/ios/MultipeerConnectivity.swift
-index 3dff192..c2e0c2c 100644
+index 3dff192..3c49105 100644
 --- a/node_modules/react-native-multipeer-connectivity/ios/MultipeerConnectivity.swift
 +++ b/node_modules/react-native-multipeer-connectivity/ios/MultipeerConnectivity.swift
-@@ -148,10 +148,16 @@ class MultipeerConnectivity: RCTEventEmitter {
+@@ -22,6 +22,7 @@ class MultipeerConnectivity: RCTEventEmitter {
+     private var session: MCSession?
+     private var advertiser: MCNearbyServiceAdvertiser?
+     private var browser: MCNearbyServiceBrowser?
++    private var serviceType: String = ""
+ 
+     override init() {
+         super.init()
+@@ -70,6 +71,7 @@ class MultipeerConnectivity: RCTEventEmitter {
+         let rnPeerID = String(peerID.hash);
+ 
+         self.peerID = (rnPeerID, peerID);
++        self.serviceType = serviceType;
+         session = MCSession(peer: peerID)
+         advertiser = MCNearbyServiceAdvertiser(peer: peerID, discoveryInfo: discoveryInfo as? [String : String], serviceType: serviceType);
+         browser = MCNearbyServiceBrowser(peer: peerID, serviceType: serviceType)
+@@ -111,6 +113,24 @@ class MultipeerConnectivity: RCTEventEmitter {
+         resolve(nil)
+     }
+ 
++    /// Recreate the MCNearbyServiceAdvertiser with updated discoveryInfo and restart advertising.
++    /// This is the only way to change discoveryInfo after the session is created, because
++    /// MCNearbyServiceAdvertiser's discoveryInfo is immutable once instantiated.
++    @objc
++    func restartAdvertising(_ options: NSDictionary, resolver resolve: RCTPromiseResolveBlock,
++                            rejecter reject: RCTPromiseRejectBlock) {
++        let discoveryInfo = (options["discoveryInfo"] as? NSDictionary ?? nil)
++        guard let pid = peerID else {
++            reject("ERR_NO_SESSION", "Session not initialised", nil)
++            return
++        }
++        advertiser?.stopAdvertisingPeer()
++        advertiser = MCNearbyServiceAdvertiser(peer: pid.1, discoveryInfo: discoveryInfo as? [String : String], serviceType: serviceType)
++        advertiser!.delegate = self
++        advertiser!.startAdvertisingPeer()
++        resolve(nil)
++    }
++
+     @objc
+     func invite(_ options: NSDictionary, resolver resolve: RCTPromiseResolveBlock,
+                  rejecter reject: RCTPromiseRejectBlock) {
+@@ -148,10 +168,16 @@ class MultipeerConnectivity: RCTEventEmitter {
          let text = (options["text"] as! String)
  
          do {
@@ -23,7 +77,7 @@ index 3dff192..c2e0c2c 100644
              }
              resolve(nil)
          } catch {
-@@ -200,7 +206,11 @@ extension MultipeerConnectivity: MCNearbyServiceBrowserDelegate {
+@@ -200,7 +226,11 @@ extension MultipeerConnectivity: MCNearbyServiceBrowserDelegate {
  
      func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String: String]?) {
          let rnPeerID = String(peerID.hash);
@@ -36,7 +90,7 @@ index 3dff192..c2e0c2c 100644
          sendEvent(withName: "onFoundPeer", body: [
              "peer": peerID.toRNPeer(rnPeerID),
              "discoveryInfo": info != nil ? info : nil
-@@ -208,6 +218,10 @@ extension MultipeerConnectivity: MCNearbyServiceBrowserDelegate {
+@@ -208,6 +238,10 @@ extension MultipeerConnectivity: MCNearbyServiceBrowserDelegate {
      }
  
      func browser(_ browser: MCNearbyServiceBrowser, lostPeer peerID: MCPeerID) {

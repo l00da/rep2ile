@@ -27,13 +27,15 @@ import {
 import type { P2PAdapter } from './adapters/P2PAdapter';
 import { createAdapter } from './adapters/createAdapter';
 
-const STATE = { AMBIENT: '0', SEEKING: '1' } as const;
+const STATE = { AMBIENT: '0', SEEKING: '1', ARENA: '2' } as const;
 type StateCode = (typeof STATE)[keyof typeof STATE];
 
 const UUID_V4_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const PAYLOAD_TYPE_BYTES = 1;
+
+export type { StateCode };
 
 export interface ParsedEndpoint {
   stateCode: StateCode;
@@ -57,6 +59,7 @@ export class ResonanceEngine {
   // Layer 1 / 2
   private engineState: EngineState = 'stopped';
   private peerMap: Map<string, string> = new Map();
+  private peerStateMap: Map<string, StateCode> = new Map();
   private onPeersChanged: PeersCallback | null = null;
   private listeners: Array<{ remove: () => void }> = [];
 
@@ -202,6 +205,7 @@ export class ResonanceEngine {
     await this.adapter.stopAllEndpoints();
 
     this.peerMap.clear();
+    this.peerStateMap.clear();
     this.arenaMap.clear();
     this.pendingConnections.clear();
     this.engineState = 'stopped';
@@ -229,6 +233,10 @@ export class ResonanceEngine {
     return this.arenaMap;
   }
 
+  getPeerStateMap(): ReadonlyMap<string, StateCode> {
+    return this.peerStateMap;
+  }
+
   getEngineState(): EngineState {
     return this.engineState;
   }
@@ -242,7 +250,7 @@ export class ResonanceEngine {
     if (sep === -1) return null;
     const stateCode = raw.slice(0, sep);
     const tempID = raw.slice(sep + 1);
-    if (stateCode !== STATE.AMBIENT && stateCode !== STATE.SEEKING) return null;
+    if (stateCode !== STATE.AMBIENT && stateCode !== STATE.SEEKING && stateCode !== STATE.ARENA) return null;
     if (!UUID_V4_RE.test(tempID)) return null;
     return { stateCode: stateCode as StateCode, tempID };
   }
@@ -267,6 +275,7 @@ export class ResonanceEngine {
         const parsed = this.parseEndpointName(endpointName);
         if (parsed === null) return;
         this.peerMap.set(endpointId, parsed.tempID);
+        this.peerStateMap.set(endpointId, parsed.stateCode);
         this.onPeersChanged?.(this.getNearbyTempIDs());
       }),
     );
@@ -275,6 +284,7 @@ export class ResonanceEngine {
       this.listeners,
       this.adapter.onEndpointLost((endpointId) => {
         this.peerMap.delete(endpointId);
+        this.peerStateMap.delete(endpointId);
         this.onPeersChanged?.(this.getNearbyTempIDs());
       }),
     );
@@ -296,7 +306,7 @@ export class ResonanceEngine {
     this._push(
       this.arenaListeners,
       this.adapter.onConnectionResult((endpointId, isSuccess) => {
-        this._handleConnectionResult(endpointId, isSuccess);
+        void this._handleConnectionResult(endpointId, isSuccess);
       }),
     );
 
@@ -375,7 +385,7 @@ export class ResonanceEngine {
     }
   }
 
-  private _handleConnectionResult(endpointId: string, isSuccess: boolean): void {
+  private async _handleConnectionResult(endpointId: string, isSuccess: boolean): Promise<void> {
     const tempID = this.pendingConnections.get(endpointId);
     this.pendingConnections.delete(endpointId);
     if (!isSuccess || tempID === undefined) {
@@ -383,7 +393,7 @@ export class ResonanceEngine {
       // If we were the challenger and got rejected, return to ambient.
       if (this.engineState === 'seeking') {
         console.log('[Arena] challenge rejected — returning to ambient');
-        void this._returnToAmbient();
+        await this._returnToAmbient();
       }
       return;
     }
@@ -391,6 +401,10 @@ export class ResonanceEngine {
     this.validator.registerEndpoint(endpointId, tempID);
     console.log(`[Arena] connectionResult SUCCESS — peer=${endpointId.slice(0, 8)} tempID=${tempID.slice(0, 8)} arenaSize=${this.arenaMap.size}`);
     this.onArenaChanged?.(this.arenaMap);
+    // Re-advertise with ARENA state code so third-party browsers see this peer is occupied.
+    const arenaName = `${STATE.ARENA}:${ghostIdentity.getTempID()!}`;
+    console.log(`[Arena] re-advertising as ${arenaName} to signal arena status`);
+    await this.adapter.startAdvertising(arenaName);
   }
 
   private _handleDisconnected(endpointId: string): void {
